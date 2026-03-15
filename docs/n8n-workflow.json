@@ -1,0 +1,172 @@
+{
+  "name": "Alert-to-KB-Analysis",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [200, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alert-ingest",
+        "responseMode": "lastNode"
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-alert",
+      "name": "Parse Alert",
+      "type": "n8n-nodes-base.set",
+      "position": [400, 300],
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "errorMessage",
+              "value": "={{ $json.body?.alert?.message || $json.body?.result?.message || $json.body?.errorMessage || 'Unknown error' }}"
+            },
+            {
+              "name": "applicationName",
+              "value": "={{ $json.body?.alert?.application || $json.body?.result?.source || $json.body?.applicationName || 'unknown' }}"
+            },
+            {
+              "name": "severity",
+              "value": "={{ ($json.body?.alert?.severity || $json.body?.result?.severity || $json.body?.severity || 'HIGH').toUpperCase() }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.headers?.['x-alert-source'] || $json.body?.source || 'unknown' }}"
+            },
+            {
+              "name": "stackTrace",
+              "value": "={{ $json.body?.alert?.stacktrace || $json.body?.result?.stacktrace || $json.body?.stackTrace || '' }}"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "severity-check",
+      "name": "Check Severity",
+      "type": "n8n-nodes-base.if",
+      "position": [600, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.severity }}",
+              "operation": "regex",
+              "value2": "CRITICAL|HIGH"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "call-kb-api",
+      "name": "Call KB API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [800, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "http://kb-backend:8080/api/v1/kb/alert-analyze",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "errorMessage", "value": "={{ $json.errorMessage }}" },
+            { "name": "applicationName", "value": "={{ $json.applicationName }}" },
+            { "name": "severity", "value": "={{ $json.severity }}" },
+            { "name": "source", "value": "={{ $json.source }}" },
+            { "name": "stackTrace", "value": "={{ $json.stackTrace }}" }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "queue-batch",
+      "name": "Queue for Batch",
+      "type": "n8n-nodes-base.set",
+      "position": [800, 400],
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "queued_for_batch_analysis"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "format-slack",
+      "name": "Format Slack Message",
+      "type": "n8n-nodes-base.set",
+      "position": [1000, 200],
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "slackMessage",
+              "value": "={{ '🚨 *Alert Analysis* - ' + $json.severity + '\\n\\n' + '*Application:* ' + $('Parse Alert').item.json.applicationName + '\\n' + '*Error:* ' + $('Parse Alert').item.json.errorMessage.substring(0, 200) + '\\n\\n' + '*Root Cause Analysis:*\\n' + $json.rootCauseAnalysis.substring(0, 500) + '\\n\\n' + '*Recommended Actions:*\\n' + ($json.recommendedActions || []).map((a, i) => (i+1) + '. ' + a).join('\\n') + '\\n\\n' + '*Confidence:* ' + Math.round($json.confidence * 100) + '%' + '\\n*Similar Incidents:* ' + ($json.similarIncidents || []).length }}"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "post-slack",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "position": [1200, 200],
+      "parameters": {
+        "channel": "#incident-alerts",
+        "text": "={{ $json.slackMessage }}",
+        "otherOptions": {}
+      },
+      "typeVersion": 1,
+      "credentials": {
+        "slackApi": {
+          "id": "SLACK_CREDENTIAL_ID",
+          "name": "Slack API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Parse Alert", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Alert": {
+      "main": [
+        [{ "node": "Check Severity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Severity": {
+      "main": [
+        [{ "node": "Call KB API", "type": "main", "index": 0 }],
+        [{ "node": "Queue for Batch", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call KB API": {
+      "main": [
+        [{ "node": "Format Slack Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Slack Message": {
+      "main": [
+        [{ "node": "Post to Slack", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}

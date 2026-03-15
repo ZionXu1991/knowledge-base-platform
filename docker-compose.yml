@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # --- Vector Database ---
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  # --- Cache ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # --- DynamoDB Local (dev) / use real AWS DynamoDB in prod ---
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb_data:/home/dynamodblocal/data
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+
+  # --- Backend ---
+  kb-backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_GRPC_PORT=6334
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CONFLUENCE_BASE_URL=${CONFLUENCE_BASE_URL}
+      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
+      - CONFLUENCE_SPACES=${CONFLUENCE_SPACES:-DEVOPS,SRE}
+      # DynamoDB — local for dev, remove DYNAMODB_ENDPOINT for real AWS
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-local}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-local}
+      - DYNAMODB_TABLE=${DYNAMODB_TABLE:-kb_alert_insights}
+    depends_on:
+      - qdrant
+      - redis
+      - dynamodb-local
+
+  # --- Frontend ---
+  kb-frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8080/api/v1/kb
+    depends_on:
+      - kb-backend
+
+  # --- Workflow Engine ---
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-admin}
+      - WEBHOOK_URL=http://n8n:5678
+    depends_on:
+      - kb-backend
+
+volumes:
+  qdrant_data:
+  redis_data:
+  dynamodb_data:
+  n8n_data:
