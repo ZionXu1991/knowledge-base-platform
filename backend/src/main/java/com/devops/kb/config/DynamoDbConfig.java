@@ -7,7 +7,9 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbEnhancedClient;
 import software.amazon.awssdk.enhanced.dynamodb.DynamoDbTable;
 import software.amazon.awssdk.enhanced.dynamodb.TableSchema;
@@ -33,11 +35,15 @@ public class DynamoDbConfig {
     @Bean
     public DynamoDbClient dynamoDbClient() {
         DynamoDbClientBuilder builder = DynamoDbClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(DefaultCredentialsProvider.create());
+                .region(Region.of(region));
 
         if (endpoint != null && !endpoint.isBlank()) {
-            builder.endpointOverride(URI.create(endpoint));
+            // Local DynamoDB — use static credentials
+            builder.endpointOverride(URI.create(endpoint))
+                   .credentialsProvider(StaticCredentialsProvider.create(
+                           AwsBasicCredentials.create("local", "local")));
+        } else {
+            builder.credentialsProvider(DefaultCredentialsProvider.create());
         }
 
         return builder.build();

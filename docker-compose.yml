@@ -25,9 +25,7 @@ services:
     image: amazon/dynamodb-local:latest
     ports:
       - "8000:8000"
-    volumes:
-      - dynamodb_data:/home/dynamodblocal/data
-    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data"
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
 
   # --- Backend ---
   kb-backend:
@@ -83,5 +81,4 @@ services:
 volumes:
   qdrant_data:
   redis_data:
-  dynamodb_data:
   n8n_data:

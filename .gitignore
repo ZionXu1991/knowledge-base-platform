@@ -1,0 +1,21 @@
+# Java / Maven
+backend/target/
+*.class
+*.jar
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Environment
+.env
+*.env.local
+
+# Claude Code
+.claude/
